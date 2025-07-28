@@ -147,12 +147,12 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
             # Si hay imagen, la IA "analizará" la imagen
             simulated_ai_response = f"""
             ¡Hola! Soy tu recepcionista IA. He analizado la imagen que me has enviado.
-            **Marca:** Posiblemente [Marca detectada, ej. Toyota]
-            **Modelo:** Posiblemente [Modelo detectado, ej. Corolla]
-            **Año:** Estimado [Año, ej. 2018]
-            **Lugar del siniestro:** [Parte del vehículo, ej. Puerta delantera izquierda]
-            **Tipo de siniestro:** [Tipo de daño, ej. Abolladura leve y rayones]
-            **Estimación de costo desde:** $ [Cantidad, ej. 150.000 CLP]
+            **Marca:** Posiblemente [Marca detectada, ej. Ford]
+            **Modelo:** Posiblemente [Modelo detectado, ej. Ranger]
+            **Año:** Estimado [Año, ej. 2020]
+            **Lugar del siniestro:** [Parte del vehículo, ej. Parachoques trasero y portalón]
+            **Tipo de siniestro:** [Tipo de daño, ej. Abolladura en parachoques cromado y rayones en portalón]
+            **Estimación de costo desde:** $ [Cantidad, ej. 250.000 CLP]
 
             Esta es una estimación inicial basada en la imagen. Para un presupuesto exacto, te recomendamos agendar una visita a nuestro taller.
             """
@@ -180,19 +180,14 @@ uploaded_file = st.file_uploader("Elige una imagen...", type=["jpg", "jpeg", "pn
 image_data_base64 = None
 if uploaded_file is not None:
     # Mostrar la imagen subida
-    st.image(uploaded_file, caption="Imagen subida.", use_column_width=True)
+    # CORRECCIÓN: Cambiado use_column_width por use_container_width
+    st.image(uploaded_file, caption="Imagen subida.", use_container_width=True)
     # Convertir la imagen a base64
     bytes_data = uploaded_file.getvalue()
     image_data_base64 = base64.b64encode(bytes_data).decode("utf-8")
 
     if st.button("Analizar Daño con IA"):
         with st.spinner("Analizando la imagen..."):
-            # Llamar a la función asíncrona usando asyncio.run() para Streamlit
-            # Nota: asyncio.run() solo se puede llamar una vez por hilo.
-            # Para un entorno de Streamlit más robusto, se usaría `st.experimental_memo` o `st.cache_data`
-            # con una función asíncrona, o se manejaría la llamada API en un hilo separado.
-            # Aquí, para simplificar y mostrar el concepto:
-            # Se simula la respuesta de la IA para la imagen.
             prompt_for_image = """
             Actúa como un recepcionista de un taller de desabolladura y pintura.
             Analiza la imagen de este vehículo con un siniestro.
@@ -202,9 +197,7 @@ if uploaded_file is not None:
             Proporciona una estimación de costo 'desde' en pesos chilenos (CLP) para la reparación.
             Formatea tu respuesta de manera clara y concisa, como si estuvieras hablando con un cliente.
             """
-            # Se pasa una copia del historial para evitar modificarlo durante la iteración
             response = asyncio.run(call_gemini_api(prompt_for_image, image_data=image_data_base64, chat_history_context=list(st.session_state.chat_history)))
-            # No es necesario st.write(response) aquí, ya que call_gemini_api lo agrega al historial
             st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
 
 st.subheader("2. Conversa con el recepcionista IA")
@@ -212,7 +205,6 @@ st.subheader("2. Conversa con el recepcionista IA")
 # Mostrar historial de chat
 for message in st.session_state.chat_history:
     if message["role"] == "user":
-        # Asegurarse de que el mensaje de usuario se muestre correctamente, incluso si tiene partes de imagen
         text_content = ""
         for part in message["parts"]:
             if "text" in part:
@@ -227,7 +219,6 @@ user_input = st.text_input("Escribe tu mensaje aquí:", key="user_input")
 if user_input:
     # Si el usuario ingresa texto, envía la pregunta a la IA
     with st.spinner("Pensando..."):
-        # Se envía el historial completo para que la IA tenga contexto
         response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
-        # El historial ya se actualiza dentro de call_gemini_api
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
+
