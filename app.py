@@ -142,13 +142,13 @@ async def call_gemini_api(prompt_text, image_data=None, chat_history_context=Non
         result = response.json()
 
         ai_text = "No pude obtener una respuesta de la IA. Inténtalo de nuevo."
-        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"]:
+        # CORRECCIÓN: Cambiado .get("parts"] por .get("parts")
+        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"):
             ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
 
-        # --- CAMBIO AQUÍ: Simulación de respuesta más específica para el análisis de imagen ---
+        # Para el propósito de este demo, aún mantendremos la simulación para la valoración detallada
+        # ya que Gemini-2.0-flash no está entrenado específicamente para cuantificar daños vehiculares.
         if image_data:
-            # Aquí la simulación se hace más "inteligente" para dar una respuesta más específica.
-            # En un sistema real, esta información vendría de un modelo de visión por computadora entrenado.
             simulated_damage_details = {
                 "Marca": "Ford",
                 "Modelo": "Ranger",
@@ -248,4 +248,3 @@ if user_input:
         # Se envía el historial completo para que la IA tenga contexto
         response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
-
