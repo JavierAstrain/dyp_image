@@ -2,6 +2,7 @@ import streamlit as st
 import base64
 import json
 import asyncio # Para manejar operaciones asíncronas
+import requests # Necesario para hacer llamadas HTTP a la API de Gemini
 
 # Variables globales para Firebase (obligatorias, aunque no se usen para persistencia en este ejemplo de Streamlit)
 # Estas variables son proporcionadas por el entorno de Canvas.
@@ -93,76 +94,61 @@ if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
 # Función para llamar a la API de Gemini
-async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
+async def call_gemini_api(prompt_text, image_data=None, chat_history_context=None):
     """
     Llama a la API de Gemini para generar contenido.
     Args:
-        prompt (str): El mensaje del usuario o la instrucción para la IA.
+        prompt_text (str): El mensaje del usuario o la instrucción para la IA.
         image_data (str, optional): Datos de la imagen en base64. Defaults to None.
         chat_history_context (list, optional): Historial de chat para contexto conversacional. Defaults to None.
     Returns:
         str: La respuesta de la IA.
     """
-    # Añadir el mensaje del usuario al historial antes de enviar
-    current_chat_entry = {"role": "user", "parts": [{"text": prompt}]}
-    if image_data:
-        current_chat_entry["parts"].append({
-            "inlineData": {
-                "mimeType": "image/jpeg", # Asumimos JPEG, puedes ajustar si es necesario
-                "data": image_data
-            }
-        })
-    st.session_state.chat_history.append(current_chat_entry)
-
-
     # Construir el payload para la API
     payload_contents = []
+
+    # Añadir el historial de chat para contexto conversacional
     if chat_history_context:
-        # Asegurarse de que el historial de chat se envíe en el formato correcto
-        # Filtrar solo los roles 'user' y 'model' para el contexto
         for msg in chat_history_context:
             if msg["role"] in ["user", "model"]:
                 payload_contents.append(msg)
 
     # Añadir el mensaje actual del usuario al payload
-    payload_contents.append(current_chat_entry)
-
+    user_parts = [{"text": prompt_text}]
+    if image_data:
+        user_parts.append({
+            "inlineData": {
+                "mimeType": "image/jpeg", # Asumimos JPEG, puedes ajustar si es necesario
+                "data": image_data
+            }
+        })
+    payload_contents.append({"role": "user", "parts": user_parts})
 
     payload = {"contents": payload_contents}
 
-    # --- CAMBIO AQUÍ: Leer la API Key de Streamlit Secrets ---
-    # Si estás en el entorno de Canvas, la API key se inyecta automáticamente.
-    # Si estás ejecutando localmente y quieres usar tu propia clave de Gemini, la leerá de secrets.toml.
+    # Leer la API Key de Streamlit Secrets o dejarla vacía para el entorno de Canvas
     try:
         api_key = st.secrets["GEMINI_API_KEY"]
     except KeyError:
-        # Esto es para el entorno de Canvas donde __api_key puede ser inyectado directamente
-        # o si no se ha configurado secrets.toml localmente.
-        # En el entorno de Canvas, la API key se maneja internamente para gemini-2.0-flash.
         api_key = "" # Deja esto vacío si dependes de la inyección de Canvas o si no tienes una clave local.
-        st.warning("No se encontró 'GEMINI_API_KEY' en `secrets.toml`. La aplicación podría no funcionar correctamente sin una clave de API.")
+        # st.warning("No se encontró 'GEMINI_API_KEY' en `secrets.toml`. La aplicación podría no funcionar correctamente sin una clave de API.")
 
 
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
     try:
-        st.write("Analizando la imagen con IA... por favor espera.")
-        # --- CAMBIO AQUÍ: Usar la librería 'requests' para la llamada real a la API ---
-        # Necesitarás instalar 'requests': pip install requests
-        import requests
+        # st.write("Analizando con IA... por favor espera.") # Esto ya se maneja con st.spinner
         headers = {'Content-Type': 'application/json'}
         response = requests.post(api_url, headers=headers, json=payload)
         result = response.json()
 
+        ai_text = "No pude obtener una respuesta de la IA. Inténtalo de nuevo."
         if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"):
             ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            ai_text = "No pude obtener una respuesta de la IA. Inténtalo de nuevo."
 
-        # Para el propósito de este demo en Canvas, aún mantendremos la simulación para la valoración detallada
+        # Para el propósito de este demo, aún mantendremos la simulación para la valoración detallada
         # ya que Gemini-2.0-flash no está entrenado específicamente para cuantificar daños vehiculares.
         if image_data:
-            # Si hay imagen, la IA "analizará" la imagen
             simulated_ai_response = f"""
             ¡Hola! Soy tu recepcionista IA. He analizado la imagen que me has enviado.
             **Marca:** Posiblemente [Marca detectada, ej. Ford]
@@ -175,17 +161,14 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
             Esta es una **estimación inicial basada en la imagen simulada**. Para un presupuesto exacto y definitivo, te recomendamos encarecidamente agendar una visita a nuestro taller para una inspección física detallada.
             """
             # Combinamos la respuesta real de Gemini (si la hay) con la simulación
-            if ai_text and "Simulando análisis" not in ai_text: # Evitar duplicar el mensaje de simulación
+            # Solo si Gemini dio una respuesta diferente a la predeterminada, la agregamos.
+            if ai_text != "No pude obtener una respuesta de la IA. Inténtalo de nuevo.":
                  ai_text = simulated_ai_response + "\n\n**Análisis general de Gemini:** " + ai_text
             else:
                  ai_text = simulated_ai_response # Si Gemini no dio una respuesta útil, solo usamos la simulación
         else:
             # Si no hay imagen, la IA responderá de forma conversacional usando la respuesta real de Gemini
-            if ai_text:
-                pass # Ya tenemos la respuesta de Gemini
-            else:
-                ai_text = f"¡Hola! Soy tu recepcionista IA. ¿En qué puedo ayudarte hoy? Si tienes un siniestro, por favor, sube una foto de tu vehículo para que pueda ayudarte con una estimación."
-
+            pass # ai_text ya contiene la respuesta de Gemini o el mensaje de error
 
         st.session_state.chat_history.append({"role": "model", "parts": [{"text": ai_text}]})
         return ai_text
@@ -212,14 +195,18 @@ if uploaded_file is not None:
     image_data_base64 = base64.b64encode(bytes_data).decode("utf-8")
 
     if st.button("Analizar Daño con IA"):
+        # Añadir un mensaje de usuario al historial indicando que se subió una imagen
+        st.session_state.chat_history.append({"role": "user", "parts": [{"text": "He subido una imagen de mi vehículo para análisis."}]})
+
         with st.spinner("Analizando la imagen..."):
-            prompt_for_image = """
+            # Este es el prompt interno para la IA, no se muestra al usuario directamente en el chat
+            prompt_for_image_analysis = """
             Actúa como un recepcionista de un taller de desabolladura y pintura.
             Analiza la imagen de este vehículo con un siniestro.
             Describe lo que ves en la imagen en términos de tipo de vehículo, color, y la naturaleza general del daño.
             No intentes identificar marca, modelo, año o dar una estimación de costo aquí, solo una descripción general.
             """
-            response = asyncio.run(call_gemini_api(prompt_for_image, image_data=image_data_base64, chat_history_context=list(st.session_state.chat_history)))
+            response = asyncio.run(call_gemini_api(prompt_for_image_analysis, image_data=image_data_base64, chat_history_context=list(st.session_state.chat_history)))
             st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
 
 st.subheader("2. Conversa con el recepcionista IA")
@@ -239,7 +226,9 @@ for message in st.session_state.chat_history:
 user_input = st.text_input("Escribe tu mensaje aquí:", key="user_input")
 
 if user_input:
-    # Si el usuario ingresa texto, envía la pregunta a la IA
+    # Si el usuario ingresa texto, añade el mensaje al historial de chat
+    st.session_state.chat_history.append({"role": "user", "parts": [{"text": user_input}]})
     with st.spinner("Pensando..."):
+        # Se envía el historial completo para que la IA tenga contexto
         response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
