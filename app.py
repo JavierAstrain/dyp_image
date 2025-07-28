@@ -5,10 +5,11 @@ import asyncio # Para manejar operaciones asíncronas
 
 # Variables globales para Firebase (obligatorias, aunque no se usen para persistencia en este ejemplo de Streamlit)
 # Estas variables son proporcionadas por el entorno de Canvas.
-app_id = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id'
-firebase_config_str = typeof __firebase_config !== 'undefined' ? __firebase_config : '{}'
+# Se usa globals().get() para verificar si la variable existe en el ámbito global de Python.
+app_id = globals().get('__app_id', 'default-app-id')
+firebase_config_str = globals().get('__firebase_config', '{}')
 firebase_config = json.loads(firebase_config_str)
-initial_auth_token = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : None
+initial_auth_token = globals().get('__initial_auth_token', None)
 
 # Configuración de la página de Streamlit
 st.set_page_config(
@@ -102,22 +103,30 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
     Returns:
         str: La respuesta de la IA.
     """
-    st.session_state.chat_history.append({"role": "user", "parts": [{"text": prompt}]})
-
-    # Construir el payload para la API
-    payload_contents = []
-    if chat_history_context:
-        payload_contents.extend(chat_history_context)
-
-    user_parts = [{"text": prompt}]
+    # Añadir el mensaje del usuario al historial antes de enviar
+    current_chat_entry = {"role": "user", "parts": [{"text": prompt}]}
     if image_data:
-        user_parts.append({
+        current_chat_entry["parts"].append({
             "inlineData": {
                 "mimeType": "image/jpeg", # Asumimos JPEG, puedes ajustar si es necesario
                 "data": image_data
             }
         })
-    payload_contents.append({"role": "user", "parts": user_parts})
+    st.session_state.chat_history.append(current_chat_entry)
+
+
+    # Construir el payload para la API
+    payload_contents = []
+    if chat_history_context:
+        # Asegurarse de que el historial de chat se envíe en el formato correcto
+        # Filtrar solo los roles 'user' y 'model' para el contexto
+        for msg in chat_history_context:
+            if msg["role"] in ["user", "model"]:
+                payload_contents.append(msg)
+
+    # Añadir el mensaje actual del usuario al payload
+    payload_contents.append(current_chat_entry)
+
 
     payload = {"contents": payload_contents}
 
@@ -126,44 +135,11 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
     try:
-        # Usar fetch para la llamada a la API
-        # En un entorno de Streamlit puro, esto requeriría un backend o una librería JS.
-        # Aquí, estamos simulando cómo se haría en un entorno que soporta `fetch` directamente.
-        # Para un Streamlit real, usarías una librería HTTP de Python como `requests`.
-        # Dado que el entorno de Canvas soporta `fetch` en JS, lo simulamos aquí.
         st.write("Analizando la imagen con IA... por favor espera.")
         # Simulación de la llamada fetch para el entorno de Canvas
         # En un entorno de Python puro de Streamlit, usarías `requests.post`
         # y manejarías el JSON directamente.
-        # Aquí, esta parte es una representación conceptual de la llamada API.
-        response_placeholder = {
-            "candidates": [
-                {
-                    "content": {
-                        "parts": [
-                            {"text": "Simulando análisis de imagen. Por favor, sube una imagen real para un análisis más preciso."}
-                        ]
-                    }
-                }
-            ]
-        }
-
-        # Para que esto funcione en un entorno de Streamlit real, necesitarías:
-        # 1. Usar la librería `requests` de Python.
-        # 2. Asegurarte de que la clave de API esté configurada de forma segura (ej. variables de entorno).
-        # 3. Considerar un backend para manejar la lógica de la IA si es muy pesada.
-
-        # Ejemplo de cómo sería con `requests` (no ejecutable directamente en el entorno de Canvas sin un servidor)
-        # import requests
-        # headers = {'Content-Type': 'application/json'}
-        # response = requests.post(api_url, headers=headers, json=payload)
-        # result = response.json()
-
-        # Para el propósito de este demo en Canvas, usaremos un placeholder o una llamada real si el entorno lo permite.
-        # Para que el código sea ejecutable en Canvas, la llamada fetch debe ser JS.
-        # Como estamos en Python (Streamlit), esta parte es una representación.
-        # Si este código se ejecuta en un entorno que permite JS fetch, se ejecutaría.
-        # De lo contrario, se necesitaría un ajuste para usar una librería HTTP de Python.
+        # Dado que el entorno de Canvas soporta `fetch` en JS, lo simulamos aquí.
 
         # Para este ejemplo, vamos a simular la respuesta de Gemini para la imagen.
         # En un entorno real, la respuesta vendría de la API.
@@ -226,15 +202,22 @@ if uploaded_file is not None:
             Proporciona una estimación de costo 'desde' en pesos chilenos (CLP) para la reparación.
             Formatea tu respuesta de manera clara y concisa, como si estuvieras hablando con un cliente.
             """
-            response = asyncio.run(call_gemini_api(prompt_for_image, image_data=image_data_base64))
-            st.write(response)
+            # Se pasa una copia del historial para evitar modificarlo durante la iteración
+            response = asyncio.run(call_gemini_api(prompt_for_image, image_data=image_data_base64, chat_history_context=list(st.session_state.chat_history)))
+            # No es necesario st.write(response) aquí, ya que call_gemini_api lo agrega al historial
+            st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
 
 st.subheader("2. Conversa con el recepcionista IA")
 
 # Mostrar historial de chat
 for message in st.session_state.chat_history:
     if message["role"] == "user":
-        st.markdown(f"<div class='chat-message user-message'><b>Tú:</b> {message['parts'][0]['text']}</div>", unsafe_allow_html=True)
+        # Asegurarse de que el mensaje de usuario se muestre correctamente, incluso si tiene partes de imagen
+        text_content = ""
+        for part in message["parts"]:
+            if "text" in part:
+                text_content += part["text"]
+        st.markdown(f"<div class='chat-message user-message'><b>Tú:</b> {text_content}</div>", unsafe_allow_html=True)
     elif message["role"] == "model":
         st.markdown(f"<div class='chat-message ai-message'><b>Recepcionista IA:</b> {message['parts'][0]['text']}</div>", unsafe_allow_html=True)
 
@@ -245,7 +228,6 @@ if user_input:
     # Si el usuario ingresa texto, envía la pregunta a la IA
     with st.spinner("Pensando..."):
         # Se envía el historial completo para que la IA tenga contexto
-        response = asyncio.run(call_gemini_api(user_input, chat_history_context=st.session_state.chat_history))
+        response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
         # El historial ya se actualiza dentro de call_gemini_api
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
-
