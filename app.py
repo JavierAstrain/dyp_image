@@ -130,19 +130,37 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
 
     payload = {"contents": payload_contents}
 
-    # Clave de API (se dejará vacía para que Canvas la inyecte en tiempo de ejecución)
-    api_key = ""
+    # --- CAMBIO AQUÍ: Leer la API Key de Streamlit Secrets ---
+    # Si estás en el entorno de Canvas, la API key se inyecta automáticamente.
+    # Si estás ejecutando localmente y quieres usar tu propia clave de Gemini, la leerá de secrets.toml.
+    try:
+        api_key = st.secrets["GEMINI_API_KEY"]
+    except KeyError:
+        # Esto es para el entorno de Canvas donde __api_key puede ser inyectado directamente
+        # o si no se ha configurado secrets.toml localmente.
+        # En el entorno de Canvas, la API key se maneja internamente para gemini-2.0-flash.
+        api_key = "" # Deja esto vacío si dependes de la inyección de Canvas o si no tienes una clave local.
+        st.warning("No se encontró 'GEMINI_API_KEY' en `secrets.toml`. La aplicación podría no funcionar correctamente sin una clave de API.")
+
+
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
     try:
         st.write("Analizando la imagen con IA... por favor espera.")
-        # Simulación de la llamada fetch para el entorno de Canvas
-        # En un entorno de Python puro de Streamlit, usarías `requests.post`
-        # y manejarías el JSON directamente.
-        # Dado que el entorno de Canvas soporta `fetch` en JS, lo simulamos aquí.
+        # --- CAMBIO AQUÍ: Usar la librería 'requests' para la llamada real a la API ---
+        # Necesitarás instalar 'requests': pip install requests
+        import requests
+        headers = {'Content-Type': 'application/json'}
+        response = requests.post(api_url, headers=headers, json=payload)
+        result = response.json()
 
-        # Para este ejemplo, vamos a simular la respuesta de Gemini para la imagen.
-        # En un entorno real, la respuesta vendría de la API.
+        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"):
+            ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            ai_text = "No pude obtener una respuesta de la IA. Inténtalo de nuevo."
+
+        # Para el propósito de este demo en Canvas, aún mantendremos la simulación para la valoración detallada
+        # ya que Gemini-2.0-flash no está entrenado específicamente para cuantificar daños vehiculares.
         if image_data:
             # Si hay imagen, la IA "analizará" la imagen
             simulated_ai_response = f"""
@@ -154,13 +172,21 @@ async def call_gemini_api(prompt, image_data=None, chat_history_context=None):
             **Tipo de siniestro:** [Tipo de daño, ej. Abolladura en parachoques cromado y rayones en portalón]
             **Estimación de costo desde:** $ [Cantidad, ej. 250.000 CLP]
 
-            Esta es una estimación inicial basada en la imagen. Para un presupuesto exacto, te recomendamos agendar una visita a nuestro taller.
+            Esta es una **estimación inicial basada en la imagen simulada**. Para un presupuesto exacto y definitivo, te recomendamos encarecidamente agendar una visita a nuestro taller para una inspección física detallada.
             """
+            # Combinamos la respuesta real de Gemini (si la hay) con la simulación
+            if ai_text and "Simulando análisis" not in ai_text: # Evitar duplicar el mensaje de simulación
+                 ai_text = simulated_ai_response + "\n\n**Análisis general de Gemini:** " + ai_text
+            else:
+                 ai_text = simulated_ai_response # Si Gemini no dio una respuesta útil, solo usamos la simulación
         else:
-            # Si no hay imagen, la IA responderá de forma conversacional
-            simulated_ai_response = f"¡Hola! Soy tu recepcionista IA. ¿En qué puedo ayudarte hoy? Si tienes un siniestro, por favor, sube una foto de tu vehículo para que pueda ayudarte con una estimación."
+            # Si no hay imagen, la IA responderá de forma conversacional usando la respuesta real de Gemini
+            if ai_text:
+                pass # Ya tenemos la respuesta de Gemini
+            else:
+                ai_text = f"¡Hola! Soy tu recepcionista IA. ¿En qué puedo ayudarte hoy? Si tienes un siniestro, por favor, sube una foto de tu vehículo para que pueda ayudarte con una estimación."
 
-        ai_text = simulated_ai_response
+
         st.session_state.chat_history.append({"role": "model", "parts": [{"text": ai_text}]})
         return ai_text
 
@@ -180,7 +206,6 @@ uploaded_file = st.file_uploader("Elige una imagen...", type=["jpg", "jpeg", "pn
 image_data_base64 = None
 if uploaded_file is not None:
     # Mostrar la imagen subida
-    # CORRECCIÓN: Cambiado use_column_width por use_container_width
     st.image(uploaded_file, caption="Imagen subida.", use_container_width=True)
     # Convertir la imagen a base64
     bytes_data = uploaded_file.getvalue()
@@ -191,11 +216,8 @@ if uploaded_file is not None:
             prompt_for_image = """
             Actúa como un recepcionista de un taller de desabolladura y pintura.
             Analiza la imagen de este vehículo con un siniestro.
-            Identifica la marca, modelo y año del vehículo.
-            Describe el lugar específico del siniestro (ej. puerta delantera derecha, parachoques trasero).
-            Clasifica el tipo de siniestro (ej. rayón leve, abolladura, choque mayor).
-            Proporciona una estimación de costo 'desde' en pesos chilenos (CLP) para la reparación.
-            Formatea tu respuesta de manera clara y concisa, como si estuvieras hablando con un cliente.
+            Describe lo que ves en la imagen en términos de tipo de vehículo, color, y la naturaleza general del daño.
+            No intentes identificar marca, modelo, año o dar una estimación de costo aquí, solo una descripción general.
             """
             response = asyncio.run(call_gemini_api(prompt_for_image, image_data=image_data_base64, chat_history_context=list(st.session_state.chat_history)))
             st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
@@ -221,4 +243,3 @@ if user_input:
     with st.spinner("Pensando..."):
         response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
-
