@@ -137,35 +137,51 @@ async def call_gemini_api(prompt_text, image_data=None, chat_history_context=Non
     api_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}"
 
     try:
-        # st.write("Analizando con IA... por favor espera.") # Esto ya se maneja con st.spinner
         headers = {'Content-Type': 'application/json'}
         response = requests.post(api_url, headers=headers, json=payload)
         result = response.json()
 
         ai_text = "No pude obtener una respuesta de la IA. Inténtalo de nuevo."
-        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"):
+        if result.get("candidates") and result["candidates"][0].get("content") and result["candidates"][0]["content"].get("parts"]:
             ai_text = result["candidates"][0]["content"]["parts"][0]["text"]
 
-        # Para el propósito de este demo, aún mantendremos la simulación para la valoración detallada
-        # ya que Gemini-2.0-flash no está entrenado específicamente para cuantificar daños vehiculares.
+        # --- CAMBIO AQUÍ: Simulación de respuesta más específica para el análisis de imagen ---
         if image_data:
+            # Aquí la simulación se hace más "inteligente" para dar una respuesta más específica.
+            # En un sistema real, esta información vendría de un modelo de visión por computadora entrenado.
+            simulated_damage_details = {
+                "Marca": "Ford",
+                "Modelo": "Ranger",
+                "Año": "2020",
+                "Lugar del siniestro": "Parachoques trasero y portalón",
+                "Tipo de siniestro": "Abolladura profunda en el parachoques cromado, con rayones extensos y posible deformación menor en el portalón.",
+                "Gravedad del daño": "Moderado a Severo",
+                "Estimación de costo desde": "$ 250.000 CLP - $ 400.000 CLP" # Rango para mayor realismo
+            }
+
             simulated_ai_response = f"""
             ¡Hola! Soy tu recepcionista IA. He analizado la imagen que me has enviado.
-            **Marca:** Posiblemente [Marca detectada, ej. Ford]
-            **Modelo:** Posiblemente [Modelo detectado, ej. Ranger]
-            **Año:** Estimado [Año, ej. 2020]
-            **Lugar del siniestro:** [Parte del vehículo, ej. Parachoques trasero y portalón]
-            **Tipo de siniestro:** [Tipo de daño, ej. Abolladura en parachoques cromado y rayones en portalón]
-            **Estimación de costo desde:** $ [Cantidad, ej. 250.000 CLP]
+
+            **Detalles del Vehículo:**
+            - **Marca:** {simulated_damage_details["Marca"]}
+            - **Modelo:** {simulated_damage_details["Modelo"]}
+            - **Año:** {simulated_damage_details["Año"]}
+
+            **Análisis del Siniestro:**
+            - **Lugar afectado:** {simulated_damage_details["Lugar del siniestro"]}
+            - **Tipo de daño:** {simulated_damage_details["Tipo de siniestro"]}
+            - **Gravedad estimada:** {simulated_damage_details["Gravedad del daño"]}
+
+            **Estimación de Costo Inicial:**
+            - **Costo desde:** {simulated_damage_details["Estimación de costo desde"]}
 
             Esta es una **estimación inicial basada en la imagen simulada**. Para un presupuesto exacto y definitivo, te recomendamos encarecidamente agendar una visita a nuestro taller para una inspección física detallada.
             """
             # Combinamos la respuesta real de Gemini (si la hay) con la simulación
-            # Solo si Gemini dio una respuesta diferente a la predeterminada, la agregamos.
-            if ai_text != "No pude obtener una respuesta de la IA. Inténtalo de nuevo.":
-                 ai_text = simulated_ai_response + "\n\n**Análisis general de Gemini:** " + ai_text
+            if ai_text != "No pude obtener una respuesta de la IA. Inténtalo de nuevo." and "simulada" not in ai_text:
+                 ai_text = simulated_ai_response + "\n\n**Análisis general de Gemini sobre la imagen:** " + ai_text
             else:
-                 ai_text = simulated_ai_response # Si Gemini no dio una respuesta útil, solo usamos la simulación
+                 ai_text = simulated_ai_response # Si Gemini no dio una respuesta útil o ya es una simulación, solo usamos la simulación
         else:
             # Si no hay imagen, la IA responderá de forma conversacional usando la respuesta real de Gemini
             pass # ai_text ya contiene la respuesta de Gemini o el mensaje de error
@@ -232,3 +248,4 @@ if user_input:
         # Se envía el historial completo para que la IA tenga contexto
         response = asyncio.run(call_gemini_api(user_input, chat_history_context=list(st.session_state.chat_history)))
     st.rerun() # Para refrescar la interfaz y mostrar el nuevo mensaje
+
